@@ -141,6 +141,86 @@
             text-align: center;
         }
 
+        .search-wrap {
+            position: relative;
+            max-width: 600px;
+            margin: 15px auto 0;
+            padding: 0 15px;
+            box-sizing: border-box;
+        }
+
+        #searchInput {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 16px;
+            border: 2px solid var(--secondary-color);
+            border-radius: 25px;
+            outline: none;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+
+        #searchInput:focus {
+            border-color: #fff;
+            box-shadow: 0 0 6px rgba(0,0,0,0.25);
+        }
+
+        #searchResults {
+            position: absolute;
+            top: 100%;
+            left: 15px;
+            right: 15px;
+            background: white;
+            color: #333;
+            max-height: 350px;
+            overflow-y: auto;
+            border-radius: 8px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.25);
+            display: none;
+            z-index: 200;
+            text-align: left;
+            margin-top: 4px;
+        }
+
+        #searchResults .result-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+
+        #searchResults .result-item:hover {
+            background-color: var(--secondary-color);
+        }
+
+        #searchResults .result-title {
+            font-weight: bold;
+            color: #d84315;
+            font-size: 15px;
+        }
+
+        #searchResults .result-cat {
+            font-size: 12px;
+            color: #888;
+            margin-left: 6px;
+            font-weight: normal;
+        }
+
+        #searchResults .result-snippet {
+            font-size: 13px;
+            color: #555;
+            margin-top: 3px;
+        }
+
+        #searchResults mark {
+            background: #ffe082;
+            padding: 0;
+        }
+
+        #searchResults .no-result {
+            padding: 12px 16px;
+            color: #888;
+        }
+
         footer {
             text-align: center;
             padding: 15px;
@@ -155,6 +235,10 @@
     <header>
         <h1>শ্রীগৌড়ীয় ভক্ত সঙ্গ</h1>
         <p>ভজন, কীর্তন ও বন্দনা সমাহার</p>
+        <div class="search-wrap">
+            <input type="search" id="searchInput" placeholder="🔍 ভজন বা কীর্তন খুঁজুন (নাম বা যেকোনো শব্দ লিখুন)..." autocomplete="off">
+            <div id="searchResults"></div>
+        </div>
     </header>
 
     <nav>
@@ -529,6 +613,76 @@
             const displayArea = document.getElementById('displayArea');
             displayArea.innerHTML = `<h2>${title}</h2><div class="kirtan-text">${text}</div>`;
         }
+
+        // ===== সার্চ ফিচার =====
+        (function () {
+            const input = document.getElementById('searchInput');
+            const box = document.getElementById('searchResults');
+            const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+            const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+            // সব মেনু থেকে পদের তালিকা তৈরি (একই নামের ও একই লেখার ডুপ্লিকেট বাদ)
+            const items = [];
+            const seen = new Set();
+            document.querySelectorAll('.menu-item').forEach(menu => {
+                const cat = menu.querySelector(':scope > a').textContent.replace('▾', '').trim();
+                menu.querySelectorAll('.submenu li a').forEach(a => {
+                    const code = a.getAttribute('onclick') || '';
+                    const m = code.match(/loadContent\(\s*'([\s\S]*?)'\s*,\s*`([\s\S]*)`\s*\)/);
+                    if (!m) return;
+                    const title = m[1].trim();
+                    const text = m[2].replace(/\\n/g, '\n');
+                    const key = norm(title) + '|' + norm(text);
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    items.push({ title, text, cat, hay: norm(title + ' ' + text), a });
+                });
+            });
+
+            function snippet(item, q) {
+                const flat = item.text.replace(/\s+/g, ' ').trim();
+                const idx = flat.toLowerCase().indexOf(q);
+                if (idx < 0) return esc(flat.slice(0, 70)) + '…';
+                const start = Math.max(0, idx - 25);
+                const part = flat.slice(start, idx + q.length + 45);
+                const pre = esc(flat.slice(start, idx));
+                const hit = esc(flat.slice(idx, idx + q.length));
+                const post = esc(flat.slice(idx + q.length, idx + q.length + 45));
+                return (start > 0 ? '…' : '') + pre + '<mark>' + hit + '</mark>' + post + '…';
+            }
+
+            function render() {
+                const q = norm(input.value);
+                if (!q) { box.style.display = 'none'; return; }
+                const res = items.filter(i => i.hay.includes(q)).slice(0, 30);
+                if (!res.length) {
+                    box.innerHTML = '<div class="no-result">কোনো ফলাফল পাওয়া যায়নি</div>';
+                } else {
+                    box.innerHTML = '';
+                    res.forEach(i => {
+                        const d = document.createElement('div');
+                        d.className = 'result-item';
+                        d.innerHTML = '<div class="result-title">' + esc(i.title) +
+                            '<span class="result-cat">(' + esc(i.cat) + ')</span></div>' +
+                            '<div class="result-snippet">' + snippet(i, q) + '</div>';
+                        d.addEventListener('click', () => {
+                            i.a.click();
+                            box.style.display = 'none';
+                            input.value = '';
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        });
+                        box.appendChild(d);
+                    });
+                }
+                box.style.display = 'block';
+            }
+
+            input.addEventListener('input', render);
+            input.addEventListener('focus', render);
+            document.addEventListener('click', e => {
+                if (!e.target.closest('.search-wrap')) box.style.display = 'none';
+            });
+        })();
 
         // Service Worker Register for PWA App Install support
         if ('serviceWorker' in navigator) {
